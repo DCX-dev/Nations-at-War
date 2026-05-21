@@ -1,0 +1,77 @@
+name: Build executables
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macOS
+          - os: windows-latest
+            platform: Windows
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller build.spec --noconfirm
+
+      - name: Package macOS app
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          if [ -d NationsAtWar.app ]; then
+            zip -r NationsAtWar-macOS.zip NationsAtWar.app
+          elif [ -d NationsAtWar/NationsAtWar.app ]; then
+            zip -r NationsAtWar-macOS.zip NationsAtWar
+          else
+            zip -r NationsAtWar-macOS.zip NationsAtWar
+          fi
+
+      - name: Package Windows build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist\NationsAtWar -DestinationPath dist\NationsAtWar-Windows.zip -Force
+
+      - name: Upload macOS artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: NationsAtWar-macOS
+          path: dist/NationsAtWar-macOS.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: NationsAtWar-Windows
+          path: dist/NationsAtWar-Windows.zip
+          if-no-files-found: error
+          retention-days: 30
