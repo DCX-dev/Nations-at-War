@@ -11,6 +11,8 @@ A **world war map simulator** inspired by *Ages of Conflict*. Watch AI nations f
 - **Default World Map** — Real-world country borders (177 nations from Natural Earth), equirectangular 360×180° map
 - **Create Custom Map** — Paint territories, rename nations, then start the simulation
 - **Autonomous warfare** — Border battles, military growth, conquest, and elimination
+- **Capitals** — Red dots mark capitals; capture one to destroy that nation and free its land
+- **Year counter** — Time advances from 1900 as the war runs
 - **God mode** — Select a nation, click an enemy to annex them, or use **Destroy** / **Attack!**
 - Speed controls (toolbar or `+` / `-`), pause with **Space**
 
