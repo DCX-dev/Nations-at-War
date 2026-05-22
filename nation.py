@@ -17,6 +17,12 @@ class Nation:
     at_war: bool = True
     capital_x: int = -1
     capital_y: int = -1
+    ai_style: str = "opportunist"
+    neutral_bias: float = 0.3
+    capital_focus: float = 0.3
+    push_mult: float = 1.0
+    battle_weight: float = 1.0
+    overextend: float = 1.0
 
     def reset_military(self, territory_count: int) -> None:
         self.military = max(50.0, territory_count * 2.5 + random.uniform(-10, 10))

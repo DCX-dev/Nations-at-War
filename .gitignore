@@ -11,3 +11,5 @@ dist/
 .vscode/
 *.log
 /tmp/
+maps/*.naw
+!maps/.gitkeep

@@ -9,6 +9,7 @@ import numpy as np
 
 from constants import BORDER_DARKEN, GRID_H, GRID_W, LAND_EMPTY, NEUTRAL_LAND, OCEAN, PUSH_FLASH
 from nation import NationRegistry
+from real_capitals import capital_lonlat_for_name, lonlat_to_grid
 
 
 class WorldMap:
@@ -29,18 +30,38 @@ class WorldMap:
         self.flash_cells.clear()
         self._touch()
 
+    def _snap_capital_to_territory(
+        self, nation_id: int, target_x: int, target_y: int
+    ) -> tuple[int, int]:
+        ys, xs = np.where(self.grid == nation_id)
+        if len(xs) == 0:
+            return -1, -1
+        dist = (xs - target_x) ** 2 + (ys - target_y) ** 2
+        i = int(dist.argmin())
+        return int(xs[i]), int(ys[i])
+
     def assign_capitals(self, registry: NationRegistry) -> None:
-        """Place each nation's capital at the center of its territory."""
+        """Place capitals at real-world cities when known, else territory core."""
         for nation in registry.nations.values():
             ys, xs = np.where(self.grid == nation.id)
             if len(xs) == 0:
                 nation.capital_x = nation.capital_y = -1
                 continue
-            cx, cy = int(xs.mean()), int(ys.mean())
-            dist = (xs - cx) ** 2 + (ys - cy) ** 2
-            i = int(dist.argmin())
-            nation.capital_x = int(xs[i])
-            nation.capital_y = int(ys[i])
+
+            lonlat = capital_lonlat_for_name(nation.name)
+            if lonlat:
+                tx, ty = lonlat_to_grid(
+                    lonlat[0], lonlat[1], self.width, self.height
+                )
+                cx, cy = self._snap_capital_to_territory(nation.id, tx, ty)
+            else:
+                cx, cy = int(xs.mean()), int(ys.mean())
+                dist = (xs - cx) ** 2 + (ys - cy) ** 2
+                i = int(dist.argmin())
+                cx, cy = int(xs[i]), int(ys[i])
+
+            nation.capital_x, nation.capital_y = cx, cy
+            self.grid[cy, cx] = nation.id
 
     def nation_at_capital(self, registry: NationRegistry, x: int, y: int) -> int | None:
         for nation in registry.nations.values():

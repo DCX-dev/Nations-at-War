@@ -11,7 +11,9 @@ A **world war map simulator** inspired by *Ages of Conflict*. Watch AI nations f
 - **Default World Map** — Real-world country borders (177 nations from Natural Earth), equirectangular 360×180° map
 - **Create Custom Map** — Paint territories, rename nations, then start the simulation
 - **Autonomous warfare** — Border battles, military growth, conquest, and elimination
-- **Capitals** — Red dots mark capitals; capture one to destroy that nation and free its land
+- **Capitals** — Red dots at **real-world capital cities**; capture one to destroy that nation
+- **Unique nation AI** — 8 personalities (raiders, isolationists, imperialists, etc.); big empires overextend so one country doesn’t always win
+- **Save / load maps** — Custom maps stored in `maps/` as `.naw` files
 - **Year counter** — Time advances from 1900 as the war runs
 - **God mode** — Select a nation, click an enemy to annex them, or use **Destroy** / **Attack!**
 - Speed controls (toolbar or `+` / `-`), pause with **Space**
@@ -66,6 +68,8 @@ python main.py
 | Speed | Toolbar or +/- keys |
 | Back to menu | Esc or Menu button |
 | Rename (editor) | Select nation → Rename → type → Enter |
+| Save map | Editor → **Save** → type name → Enter |
+| Load map | Menu **Load Saved Map** or editor **Load** |
 
 ## Build executables locally
 

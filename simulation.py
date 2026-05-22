@@ -5,7 +5,13 @@ from __future__ import annotations
 import random
 
 from constants import NEUTRAL_LAND, START_YEAR, TICKS_PER_YEAR
-from nation import NationRegistry
+from nation import Nation, NationRegistry
+from nation_ai import (
+    assign_all_personalities,
+    combat_multiplier,
+    pick_target,
+    push_strength,
+)
 from world_map import WorldMap
 
 
@@ -17,19 +23,21 @@ class WarSimulator:
         self.events: list[str] = []
         self.max_events = 14
         self._counts: dict[int, int] = {}
+        self._rng = random.Random()
         self.prepare_for_war()
 
     def prepare_for_war(self) -> None:
-        """All nations start at war with capitals assigned."""
+        """Capitals, unique AI per nation, then war."""
         self.world.assign_capitals(self.registry)
         counts = self._sync_counts()
+        assign_all_personalities(self.registry, counts)
         for nation in self.registry.nations.values():
-            nation.at_war = True
-            nation.alive = counts.get(nation.id, 0) > 0
-            nation.aggression = 1.8 + random.uniform(0.0, 0.7)
-            nation.reset_military(counts.get(nation.id, 1))
-        living = len([n for n in self.registry.nations.values() if n.alive])
-        self._log(f"World war! {living} nations — capture red capitals to destroy them!")
+            nation.at_war = counts.get(nation.id, 0) > 0
+            nation.alive = nation.at_war
+        living = sum(1 for n in self.registry.nations.values() if n.alive)
+        self._log(
+            f"World war! {living} nations — unique AI, real capitals, capture reds to win!"
+        )
 
     def _log(self, msg: str) -> None:
         self.events.insert(0, msg)
@@ -46,7 +54,7 @@ class WarSimulator:
             if tc == 0:
                 nation.alive = False
                 continue
-            nation.military += tc * 0.08
+            nation.military += tc * 0.06 * getattr(nation, "battle_weight", 1.0)
             nation.military = min(nation.military, tc * 4 + 200)
 
     def eliminate_empty(self) -> None:
@@ -59,7 +67,6 @@ class WarSimulator:
                     self._log(f"{nation.name} has been conquered!")
 
     def collapse_nation(self, victim_id: int, capturer_id: int | None) -> None:
-        """Capital fallen — nation dies, land becomes unclaimed."""
         victim = self.registry.get(victim_id)
         if not victim or not victim.alive:
             return
@@ -82,6 +89,29 @@ class WarSimulator:
         if victim_id is not None and victim_id != new_owner:
             self.collapse_nation(victim_id, new_owner)
 
+    def _attacker_fights_this_tick(self, attacker: Nation) -> bool:
+        w = getattr(attacker, "battle_weight", 1.0)
+        if getattr(attacker, "ai_style", "") == "isolationist":
+            return self._rng.random() < 0.35 * w
+        return self._rng.random() < min(0.95, 0.55 * w)
+
+    def _pick_battle_pool(self, at_war: list[Nation], limit: int) -> list[Nation]:
+        weighted: list[Nation] = []
+        for n in at_war:
+            copies = max(1, int(getattr(n, "battle_weight", 1.0) * 2))
+            weighted.extend([n] * copies)
+        self._rng.shuffle(weighted)
+        seen: set[int] = set()
+        pool: list[Nation] = []
+        for n in weighted:
+            if n.id in seen:
+                continue
+            seen.add(n.id)
+            pool.append(n)
+            if len(pool) >= limit:
+                break
+        return pool
+
     def step(self, intensity: float = 1.0) -> None:
         self.tick += 1
         self.world.tick_flash()
@@ -93,12 +123,15 @@ class WarSimulator:
             return
 
         at_war = [n for n in living if n.at_war]
-        random.shuffle(at_war)
-        battles = min(40, max(6, int(len(at_war) * 0.35 * intensity)))
+        battle_cap = min(42, max(6, int(len(at_war) * 0.32 * intensity)))
+        pool = self._pick_battle_pool(at_war, battle_cap)
 
-        for attacker in at_war[:battles]:
+        for attacker in pool:
             if not attacker.alive or not attacker.at_war:
                 continue
+            if not self._attacker_fights_this_tick(attacker):
+                continue
+
             front = self.world.random_front_cell(attacker.id, samples=72)
             if not front:
                 continue
@@ -117,7 +150,8 @@ class WarSimulator:
             if not targets:
                 continue
 
-            if NEUTRAL_LAND in targets and random.random() < 0.35:
+            neutral_bias = getattr(attacker, "neutral_bias", 0.3)
+            if NEUTRAL_LAND in targets and self._rng.random() < neutral_bias:
                 target_id = NEUTRAL_LAND
                 defender = None
             else:
@@ -126,36 +160,33 @@ class WarSimulator:
                     target_id = NEUTRAL_LAND
                     defender = None
                 else:
-                    if random.random() < 0.55:
-                        target_id = min(enemies, key=lambda e: counts.get(e, 999999))
-                    else:
-                        cap_targets = [
-                            e
-                            for e in enemies
-                            if (dn := self.registry.get(e))
-                            and dn.capital_x >= 0
-                        ]
-                        target_id = random.choice(cap_targets or enemies)
+                    picked = pick_target(
+                        attacker, enemies, counts, self.registry, self._rng
+                    )
+                    target_id = picked if picked else self._rng.choice(enemies)
                     defender = self.registry.get(target_id)
 
             if defender and (not defender.alive or not defender.at_war):
                 continue
 
             a_count = counts.get(attacker.id, 1)
-            d_count = counts.get(target_id, 1) if target_id > 0 else 20
-            a_str = attacker.combat_strength(a_count) * attacker.aggression
+            d_count = counts.get(target_id, 1) if target_id > 0 else 18
+            a_str = (
+                attacker.combat_strength(a_count)
+                * attacker.aggression
+                * combat_multiplier(attacker, a_count)
+            )
             d_str = (
-                defender.combat_strength(d_count)
+                defender.combat_strength(d_count) * combat_multiplier(defender, d_count)
                 if defender
-                else 15 + random.uniform(0, 10)
+                else 14 + self._rng.uniform(0, 12)
             )
 
-            if a_str > d_str * random.uniform(0.7, 1.05):
+            if a_str > d_str * self._rng.uniform(0.68, 1.08):
                 toward = None
                 if defender and defender.capital_x >= 0:
                     toward = (defender.capital_x, defender.capital_y)
-                push = 3 + int((a_str - d_str) / 25) + random.randint(0, 2)
-                push = min(10, max(3, push))
+                push = push_strength(attacker, a_str - d_str, self._rng)
                 taken = self.world.push_front(
                     attacker.id,
                     target_id,
@@ -169,8 +200,8 @@ class WarSimulator:
                 if defender:
                     defender.military -= len(taken) * 2
                 attacker.military += len(taken)
-            elif defender and d_str > a_str * 1.15:
-                attacker.military *= 0.92
+            elif defender and d_str > a_str * 1.12:
+                attacker.military *= 0.91
 
         if self.tick % 15 == 0:
             self.refresh_military()
@@ -205,6 +236,40 @@ class WarSimulator:
         if not nation:
             return
         self.collapse_nation(nation_id, None)
+
+    def god_boost(self, nation_id: int, bonus: float = 400.0) -> None:
+        nation = self.registry.get(nation_id)
+        if not nation or not nation.alive:
+            return
+        nation.military += bonus
+        self._log(f"God mode: {nation.name} military boosted!")
+
+    def god_toggle_peace(self, nation_id: int) -> None:
+        nation = self.registry.get(nation_id)
+        if not nation:
+            return
+        nation.at_war = not nation.at_war
+        state = "war" if nation.at_war else "peace"
+        self._log(f"God mode: {nation.name} forced into {state}")
+
+    def god_claim_tile(self, x: int, y: int, nation_id: int) -> None:
+        nation = self.registry.get(nation_id)
+        if not nation or not nation.alive:
+            return
+        old = self.world.get_cell(x, y)
+        if old == nation_id:
+            return
+        self.world.transfer_cell(x, y, nation_id)
+        self._check_capital_captured(x, y, nation_id)
+        self._sync_counts()
+
+    def god_neutralize_tile(self, x: int, y: int) -> None:
+        from constants import NEUTRAL_LAND
+
+        if self.world.get_cell(x, y) == 0:
+            return
+        self.world.transfer_cell(x, y, NEUTRAL_LAND)
+        self._sync_counts()
 
     def leader(self) -> tuple[str, int]:
         counts = self._counts or self._sync_counts()
